@@ -18,7 +18,7 @@ with Manager.connect(port=10430) as manager:
     # you can configure in the Logic 2 UI.
     device_configuration = LogicDeviceConfiguration(
         enabled_digital_channels=[0, 1, 2, 3],
-        digital_sample_rate=500_000,
+        digital_sample_rate=2000000,
     )
 
     # Start recording for 2 minutes
@@ -42,31 +42,30 @@ with Manager.connect(port=10430) as manager:
         # Note: The simulator output is not actual SPI data
 
         can_analyzer = capture.add_analyzer('CAN', label=f'Test Analyzer', settings={
-           '3i PPS': 0,
-           'UBLOX PPS': 1,
-           'CAN High': 2,
-           'CAN Low': 3,
-        #    'Bits per Transfer': '8 Bits per Transfer (Standard)'
+            "CAN": 2,
+            "Bit Rate (Bits/s)": 500000
         })
 
         # Store output in a timestamped directory
-        output_dir = os.path.join(os.getcwd(), f'C:\Users\Drihan Du Preez\Documents\Automation tests-{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}')
+        output_dir = os.path.join(os.getcwd(), f'C:\\Users\\Drihan Du Preez\\Documents\\Automation tests\\{datetime.now().strftime("%d-%m-%y_%H-%M-%S")}')
         os.makedirs(output_dir)
 
         print("\nTest complete, exporting files...")
 
         # Export analyzer data to a CSV file
-        analyzer_export_filepath = os.path.join(output_dir, 'can_export.csv')
+        analyzer_export_filepath = os.path.join(output_dir, 'can_export.txt')
         capture.export_data_table(
            filepath=analyzer_export_filepath,
-           analyzers=[can_analyzer]
+           analyzers=[can_analyzer],
+           columns=["Type", "Start", "identifier", "data"],
         )
 
-        # Export raw digital data to a CSV file
-        capture.export_raw_data_csv(directory=output_dir, digital_channels=[0, 1, 2, 3])
-
+        # Export raw digital data to a CSV file 
+        capture.export_raw_data_csv(directory=output_dir, digital_channels=[1])
+        csv_file_path = output_dir + "\\digital.csv"
         # Finally, save the capture to a file
         capture_filepath = os.path.join(output_dir, 'CAN delay capture.sal')
         capture.save_capture(filepath=capture_filepath)
 
         print(f"\nExport complete, files can be found in...\n{output_dir}")
+        print()
