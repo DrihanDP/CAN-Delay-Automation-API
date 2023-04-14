@@ -23,7 +23,7 @@ with Manager.connect(port=10430) as manager:
 
     # Start recording for 2 minutes
     capture_configuration = CaptureConfiguration(
-        capture_mode=automation.TimedCaptureMode(duration_seconds=120.0)
+        capture_mode=automation.TimedCaptureMode(duration_seconds=120.0),
     )
 
     # Start a capture - the capture will be automatically closed when leaving the `with` block
@@ -46,17 +46,22 @@ with Manager.connect(port=10430) as manager:
             "Bit Rate (Bits/s)": 500000
         })
 
+        data_configuration = DataTableExportConfiguration(
+        can_analyzer,
+        radix=automation.RadixType.HEXADECIMAL
+        )
+
         # Store output in a timestamped directory
         output_dir = os.path.join(os.getcwd(), f'C:\\Users\\Drihan Du Preez\\Documents\\Automation tests\\{datetime.now().strftime("%d-%m-%y_%H-%M-%S")}')
         os.makedirs(output_dir)
 
         print("\nTest complete, exporting files...")
 
-        # Export analyzer data to a CSV file
+        # Export analyzer data to a CSV text file
         analyzer_export_filepath = os.path.join(output_dir, 'can_export.txt')
         capture.export_data_table(
            filepath=analyzer_export_filepath,
-           analyzers=[can_analyzer],
+           analyzers=[can_analyzer, data_configuration],
            columns=["Type", "Start", "identifier", "data"],
         )
 
@@ -69,3 +74,47 @@ with Manager.connect(port=10430) as manager:
 
         print(f"\nExport complete, files can be found in...\n{output_dir}")
         print()
+
+first_0 = False
+trigger_on_time = []
+data_list = []
+standard_channels = [
+    "0x0000000000000301",
+    "0x0000000000000302",
+    "0x0000000000000303",
+    "0x0000000000000304",
+    "0x0000000000000305",
+    "0x0000000000000306",
+    "0x0000000000000307",
+    "0x0000000000000308",
+    "0x0000000000000309",
+    "0x0000000000000314",
+]
+
+with open(csv_file_path, 'r') as f:
+    lines = f.readlines()
+
+for line in lines:
+    splitLine = line.strip("\n").split(",")
+    if splitLine[1] == '1' and first_0 == True:
+        trigger_on_time.append(splitLine[0])
+    elif first_0 == False:
+        if splitLine[1] == '0':
+            first_0 = True
+        else:
+            pass
+
+with open(analyzer_export_filepath, 'r') as f:
+    lines = f.readlines()
+
+for line in lines:
+    splitLine = line.strip("\n").split(",")
+    if 'identifier_field' in splitLine[1]:
+        last_id = splitLine[3]
+        if last_id not in standard_channels:
+            data_list.clear()
+    elif 'data_field' in splitLine[1] and last_id in standard_channels:
+        data_list.append(splitLine[4])
+        if len(data_list) == 8:
+            print(last_id, data_list)
+            data_list.clear()
