@@ -1,7 +1,7 @@
 from saleae import automation
 import os
 import os.path
-from datetime import datetime
+import datetime
 from saleae.automation import *
 
 
@@ -23,7 +23,7 @@ with Manager.connect(port=10430) as manager:
 
     # Start recording for 2 minutes
     capture_configuration = CaptureConfiguration(
-        capture_mode=automation.TimedCaptureMode(duration_seconds=120.0),
+        capture_mode=automation.TimedCaptureMode(duration_seconds=30.0),
     )
 
     # Start a capture - the capture will be automatically closed when leaving the `with` block
@@ -52,7 +52,7 @@ with Manager.connect(port=10430) as manager:
         )
 
         # Store output in a timestamped directory
-        output_dir = os.path.join(os.getcwd(), f'C:\\Users\\Drihan Du Preez\\Documents\\Automation tests\\{datetime.now().strftime("%d-%m-%y_%H-%M-%S")}')
+        output_dir = os.path.join(os.getcwd(), f'C:\\Users\\Drihan Du Preez\\Documents\\Automation tests\\{datetime.datetime.now().strftime("%d-%m-%y_%H-%M-%S")}')
         os.makedirs(output_dir)
 
         print("\nTest complete, exporting files...")
@@ -78,18 +78,13 @@ with Manager.connect(port=10430) as manager:
 first_0 = False
 trigger_on_time = []
 data_list = []
-standard_channels = [
-    "0x0000000000000301",
-    "0x0000000000000302",
-    "0x0000000000000303",
-    "0x0000000000000304",
-    "0x0000000000000305",
-    "0x0000000000000306",
-    "0x0000000000000307",
-    "0x0000000000000308",
-    "0x0000000000000309",
-    "0x0000000000000314",
-]
+stahle_UTC_list = []
+stahle_speed_list = []
+stahle_heading_list = []
+previous_speed = None
+previous_heading = None
+speed = None
+heading = None
 
 with open(csv_file_path, 'r') as f:
     lines = f.readlines()
@@ -97,12 +92,14 @@ with open(csv_file_path, 'r') as f:
 for line in lines:
     splitLine = line.strip("\n").split(",")
     if splitLine[1] == '1' and first_0 == True:
-        trigger_on_time.append(splitLine[0])
+        trigger_on_time.append(float(splitLine[0]))
     elif first_0 == False:
         if splitLine[1] == '0':
             first_0 = True
         else:
             pass
+
+# print(trigger_on_time)
 
 with open(analyzer_export_filepath, 'r') as f:
     lines = f.readlines()
@@ -111,10 +108,98 @@ for line in lines:
     splitLine = line.strip("\n").split(",")
     if 'identifier_field' in splitLine[1]:
         last_id = splitLine[3]
-        if last_id not in standard_channels:
-            data_list.clear()
-    elif 'data_field' in splitLine[1] and last_id in standard_channels:
-        data_list.append(splitLine[4])
+        if last_id == "0x0000000000000301":
+            ID301Time = float(splitLine[2])
+            for value in trigger_on_time:
+                if abs(value - ID301Time) <= 0.001:
+                    closest_301_time = ID301Time
+                    break
+        elif last_id == "0x0000000000000302":
+            ID302Time = splitLine[2]
+        elif last_id == "0x0000000000000303":
+            ID303Time = splitLine[2]
+    elif 'data_field' in splitLine[1]:
+        data_list.append(splitLine[4][2:])
         if len(data_list) == 8:
-            print(last_id, data_list)
-            data_list.clear()
+            if last_id == "0x0000000000000301":
+                hex_join = "".join(data_list[1:4])
+                converted_hex = int(hex_join, 16)
+                UTCTime = datetime.timedelta(seconds=(int(converted_hex) * 0.01))
+                data_list.clear()
+            elif last_id == "0x0000000000000302":
+                hex_join = "".join(data_list[4:6])
+                converted_hex = int(hex_join, 16)
+                speed = converted_hex * 0.01 * 1.852
+                hex_join = "".join(data_list[6:])
+                converted_hex = int(hex_join, 16)
+                heading = converted_hex * 0.01
+                data_list.clear()
+            elif last_id == "0x0000000000000303":
+                val = bin(int(("0x" + data_list[7]), 16))
+                leading_zero = "0" * (10 - len(val))
+                bin_val = leading_zero + val[2:]
+                info = []
+                if bin_val[3] == "1":
+                    info.append("Brake test started")
+                if bin_val[4] == "1":
+                    info.append("Brake trigger active")
+                if bin_val[5] == "1":
+                    info.append("DGPS Active")
+                if bin_val[6] == "1":
+                    info.append("Dual Antenna Active")
+                if bin_val[3] == "0" and bin_val[4] == "0" and bin_val[5] == "0" and bin_val[6] == "0":
+                    info.append("No additional information")
+                data_list.clear()
+            elif last_id == "0x000000000000009C":
+                hex_values = data_list[0:4]
+                hex_values.reverse()
+                hex_join = "".join(hex_values)
+                converted_hex = int(hex_join, 16)
+                stahle_UTC = datetime.timedelta(seconds=(int(converted_hex) * 0.01))
+                stahle_UTC_list.append(stahle_UTC)
+                data_list.clear()
+                try:
+                    if UTCTime in stahle_UTC_list:
+                        stahle_UTC_list.remove(UTCTime)
+                        # print(f"Time since midnight delay - {len(stahle_UTC_list)} samples")
+                except:
+                    pass
+            elif last_id == "0x0000000000000066":
+                hex_values = data_list[0:4]
+                hex_values.reverse()
+                hex_join = "".join(hex_values)
+                stahle_speed = int(hex_join, 16)
+                stahle_speed_list.append(stahle_speed)
+                try:
+                    if speed == stahle_speed_list[0] and speed != previous_speed:
+                        del stahle_speed_list[0]
+                    else:
+                        if speed > previous_speed:
+                            if speed > stahle_speed_list[0]:
+                                stahle_speed_list.clear()
+                        elif speed < previous_speed:
+                            if speed < stahle_speed_list[0]:
+                                stahle_speed_list.clear()
+                        else:
+                            if speed == stahle_speed_list[0]:
+                                stahle_speed_list.clear()
+                    # print(f"Speed delay - {len(stahle_speed_list)}")
+                except:
+                    pass
+                previous_speed = speed
+                data_list.clear()
+            elif last_id == "0x0000000000000095":
+                hex_values = data_list[6:]
+                hex_values.reverse()
+                hex_join = "".join(hex_values)
+                stahle_heading = int(hex_join, 16) * 0.01
+                try:
+                    if heading == stahle_heading_list[0] and heading != previous_heading:
+                        del stahle_heading_list[0]
+                    print(f"Heading delay - {len(stahle_heading_list)}")
+                except:
+                    pass
+                previous_heading = heading
+                data_list.clear()
+            else:
+                data_list.clear()
